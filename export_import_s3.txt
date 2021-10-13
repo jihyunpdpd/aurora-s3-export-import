@@ -52,7 +52,7 @@ aws iam create-role  --role-name rds-s3-export-role  --assume-role-policy-docume
 
 
 
-aws iam attach-role-policy  --policy-arn arn:aws:iam::911442893651:policy/rds-s3-export-policy \
+aws iam attach-role-policy  --policy-arn arn:aws:iam::911442893611:policy/rds-s3-export-policy \
   --role-name rds-s3-export-role
 
 
@@ -98,7 +98,7 @@ aws iam create-role \
 
 
 aws iam attach-role-policy \
-         --policy-arn arn:aws:iam::911442893651:policy/rds-s3-import-policy \
+         --policy-arn arn:aws:iam::911442893611:policy/rds-s3-import-policy \
          --role-name rds-s3-import-role
 
 
