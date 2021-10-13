@@ -1,4 +1,4 @@
-1. 리눅스 쉘 또는 session manager를 통해 EC2 접속하여 
+1. 리눅스 쉘 또는 AWS session manager를 통해 EC2 접속하여 
 
 aws configure (Enter)
 
