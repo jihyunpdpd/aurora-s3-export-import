@@ -1,0 +1,197 @@
+1. 리눅스 쉘 또는 session manager를 통해 EC2 접속하여 
+
+aws configure (Enter)
+
+
+2. aws credential 입력 (IAM 유저에서 credential csv 다운로드후, 해당 정보 입력)
+
+AWS Access Key ID [None]: AKIAI2BOYXXXXX
+AWS Secret Access Key [None]: wDsRna5k5XCQXoItYHGC/vMT1MjnxPuXXXXXX
+Default region name [None]: ap-northeast-2
+Default output format [None]: (그냥 엔터)
+
+
+3. S3 버켓 생성 
+
+아래 예제는 jhaupostgre라는 s3 버켓을 생성 후 cli명령을 수행함
+
+
+4. AWS CLI 명령 수행
+
+aws iam create-policy  --policy-name rds-s3-export-policy  --policy-document '{
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "s3export",
+         "Action": [
+           "S3:PutObject"
+         ],
+         "Effect": "Allow",
+         "Resource": [
+           "arn:aws:s3:::jhaupostgre/*"
+         ]
+       }
+     ]
+}'
+
+
+
+aws iam create-role  --role-name rds-s3-export-role  --assume-role-policy-document '{
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+               "Service": "rds.amazonaws.com"
+             },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+}'
+
+
+
+
+aws iam attach-role-policy  --policy-arn arn:aws:iam::911442893651:policy/rds-s3-export-policy \
+  --role-name rds-s3-export-role
+
+
+
+aws iam create-policy \
+   --policy-name rds-s3-import-policy \
+   --policy-document '{
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "s3import",
+         "Action": [
+           "s3:GetObject",
+           "s3:ListBucket"
+         ],
+         "Effect": "Allow",
+         "Resource": [
+           "arn:aws:s3:::jhaupostgre",
+           "arn:aws:s3:::jhaupostgre/*"
+         ]
+       }
+     ]
+}'
+
+
+
+aws iam create-role \
+      --role-name rds-s3-import-role \
+      --assume-role-policy-document '{
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+               "Service": "rds.amazonaws.com"
+             },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+}'
+
+
+
+
+aws iam attach-role-policy \
+         --policy-arn arn:aws:iam::911442893651:policy/rds-s3-import-policy \
+         --role-name rds-s3-import-role
+
+
+
+5. AWS콘솔접속하여 RDS-> Cluster선택 -> Connectivity & security 탭 -> Manage IAM roles -> Add IAM roles to this cluster에서
+ rds-s3-export-role검색 Feture에 S3Export선택 후 Add role 클릭
+ rds-s3-import-role검색 Feture에 S3Import선택 후 Add role 클릭
+
+(Status가 Pending에서 Active로 변경되는 것 확인. 30초 정도 소요됨)
+
+
+
+
+6. psql로 접속후 테스트용 테이블 생성
+(아래 예제는 세션 매니저를 통해 접속한 것)
+
+psql -U adminuser
+
+drop table test;
+create table test ( c1 integer, c2 varchar(30) );
+
+
+Create or replace function random_string(length integer) returns text as
+$$
+declare
+  chars text[] := '{0,1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z}';
+  result text := '';
+  i integer := 0;
+begin
+  if length < 0 then
+    raise exception 'Given length cannot be less than 0';
+  end if;
+  for i in 1..length loop
+    result := result || chars[1+random()*(array_length(chars, 1)-1)];
+  end loop;
+  return result;
+end;
+$$ language plpgsql;
+
+
+
+
+insert into test SELECT LEVEL, random_string(15) FROM GENERATE_SERIES(1,1000) LEVEL;
+
+
+
+
+
+
+
+
+
+
+7. psql 쉘에서 아래 명령 수행하여 Export
+
+psql=> create extension aws_s3 cascade;
+
+(생성된 function들 확인)
+psql=> \dx+ aws_commons
+psql=> \dx+ aws_s3
+
+
+psql=> SELECT aws_commons.create_s3_uri(
+   'jhaupostgre',
+   'testtab_bak',
+   'ap-northeast-2'
+) AS s3_uri_1 \gset
+
+
+SELECT * FROM aws_s3.query_export_to_s3('SELECT * FROM test', :'s3_uri_1', options :='format csv, delimiter $$,$$' );
+
+
+8. S3에서 testtab_bak파일이 생성된 것 확인
+
+
+9. Restore
+
+psql=> CREATE TABLE test2 (c1 integer, c2 varchar(30));
+
+SELECT aws_commons.create_s3_uri(
+            'jhaupostgre',
+            'testtab_bak',
+            'ap-northeast-2'
+) AS s3_uri_1 \gset
+
+
+psql=> SELECT aws_s3.table_import_from_s3(
+   'test2',
+   '',
+   'DELIMITER '',''',
+   aws_commons.create_s3_uri('jhaupostgre', 'testtab_bak', 'ap-northeast-2')
+);
+
+
+
+psql=> SELECT * from test2; 
